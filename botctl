@@ -1,0 +1,49 @@
+#!/bin/sh
+# Management commands installed to /usr/local/bin/botctl by setup.sh.
+set -eu
+APP_DIR="${APP_DIR:-/opt/telegram-community-bot}"
+if [ ! -f "$APP_DIR/docker-compose.yml" ]; then
+  echo "Bot is not installed in $APP_DIR" >&2
+  exit 1
+fi
+cd "$APP_DIR"
+if [ -f .install-meta ]; then
+  # shellcheck disable=SC1091
+  . ./.install-meta
+fi
+if [ -n "${COMPOSE_PROFILES:-}" ]; then
+  export COMPOSE_PROFILES
+fi
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  status)
+    docker compose ps
+    ;;
+  logs)
+    docker compose logs -f --tail=200 "$@"
+    ;;
+  restart)
+    docker compose restart "$@"
+    ;;
+  update)
+    sh "$APP_DIR/scripts/update.sh"
+    ;;
+  backup)
+    sh "$APP_DIR/scripts/backup.sh"
+    ;;
+  migrate)
+    docker compose run --rm --no-deps app python -m database.apply_migrations
+    ;;
+  shell)
+    docker compose exec app bash
+    ;;
+  uninstall)
+    sh "$APP_DIR/scripts/uninstall.sh"
+    ;;
+  *)
+    echo "Usage: botctl status|logs|restart|update|backup|migrate|shell|uninstall"
+    exit 1
+    ;;
+esac

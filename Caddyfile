@@ -1,0 +1,5 @@
+# Placeholder. setup.sh replaces this file with the real site blocks.
+# Until then, Caddy answers on port 80 and does not request a certificate.
+:80 {
+	respond "Run: sudo bash setup.sh" 200
+}

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+  <link rel="stylesheet" href="/panel/static/panel.css">
+</head>
+<body>
+  <section id="login" class="login">
+    <h1>Admin panel</h1>
+    <p class="muted">Sign in with the Telegram account that is an admin of this bot.</p>
+    <div id="tg-login"></div>
+    <form id="pin-form" hidden>
+      <p>Owner PIN</p>
+      <input id="pin" type="password" autocomplete="current-password">
+      <p><button class="primary" type="submit">Continue</button></p>
+    </form>
+    <p id="login-error" class="error"></p>
+  </section>
+  <div id="app" class="layout" hidden>
+    <aside>
+      <h1>Admin</h1>
+      <p class="muted" id="who"></p>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+    <main>
+      <div class="top">
+        <strong id="title">Dashboard</strong>
+        <button id="logout" type="button">Log out</button>
+      </div>
+      <div id="view"></div>
+    </main>
+  </div>
+  <script src="/panel/static/panel.js"></script>
+</body>
+</html>

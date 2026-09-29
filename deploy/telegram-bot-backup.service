@@ -1,0 +1,12 @@
+[Unit]
+Description=Telegram community bot PostgreSQL backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/telegram-community-bot/scripts/backup.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

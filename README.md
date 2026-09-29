@@ -1,70 +1,220 @@
-# Telegram Welcome & Automation Bot
+# Telegram community bot (webhook)
 
-Java 21 / Spring Boot 3.5 application for a single Linux VPS. API, normal workers,
-and broadcast workers run separately. PostgreSQL owns every accepted update and
-scheduled job; RabbitMQ carries durable execution signals; Redis coordinates send
-rates. Caddy supplies HTTPS. No Kubernetes required.
+Production-oriented Telegram bot stack: **PostgreSQL**, **Redis**, **FastAPI** (`uvicorn`), **python-telegram-bot** webhooks, admin panel, broadcasts, scheduling, retention, onboarding drip.
 
-## Run
+## Install on a fresh Ubuntu VPS
 
-Read [the operations guide](docs/operations.md) before exposing the service.
+You do not install Python, PostgreSQL, Redis, Nginx, or Node.js yourself. Docker Compose runs them.
 
-```sh
+You need:
+
+1. A fresh Ubuntu 22.04 or 24.04 VPS.
+2. A domain with an **A** record pointing at that VPS. For the admin site, also point `admin.yourdomain` at the same address.
+3. A Telegram bot token from [@BotFather](https://t.me/BotFather).
+4. The numeric Telegram user ids of the admins.
+
+Then, on the VPS, from this project directory:
+
+```bash
+sudo bash setup.sh
+```
+
+The script asks for the domain, bot token, bot username, admin ids, owner id, database password, optional Sentry DSN, monitoring choices, and whether to enable the web admin panel. It installs Docker, obtains HTTPS certificates with Caddy, creates the database, and registers the Telegram webhook.
+
+To repeat an install from an existing env file without prompts:
+
+```bash
+sudo bash setup.sh --non-interactive --env-file .env
+```
+
+Full steps, backups, and recovery: [`VPS_DEPLOYMENT.md`](VPS_DEPLOYMENT.md).
+
+---
+
+## Requirements
+
+- **Python 3.12+**
+- **PostgreSQL** (schema in `database/schema.sql`)
+- **Redis**
+- **Public HTTPS URL** for Telegram (`WEBHOOK_BASE_URL`); Telegram calls `setWebhook` toward that host.
+
+---
+
+## Deploy on Ubuntu VPS (one bot)
+
+The supported install is `sudo bash setup.sh`, described at the top of this file and in `VPS_DEPLOYMENT.md`. The steps below are the manual layout if you are not using that installer.
+
+Use one directory per deployment (example: `/opt/tg-bots/mybot`). Adjust names and ports to taste.
+
+### 1. Install packages
+
+```bash
+sudo apt update
+sudo apt install -y python3.12-venv python3-pip nginx postgresql redis-server certbot python3-certbot-nginx
+sudo systemctl enable --now postgresql redis-server nginx
+```
+
+### 2. Clone and Python env
+
+```bash
+sudo mkdir -p /opt/tg-bots
+sudo chown -R "$USER:$USER" /opt/tg-bots
+cd /opt/tg-bots
+git clone https://github.com/sixtyfourbitsquad/new-9-may-bot.git mybot
+cd mybot
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Database
+
+Create a database user and database, then apply the schema (example user/db `tg_bot`; use a strong password in production):
+
+```bash
+sudo -u postgres psql -c "CREATE USER tg_bot WITH PASSWORD 'YOUR_DB_PASSWORD';" || true
+sudo -u postgres psql -c "CREATE DATABASE tg_bot OWNER tg_bot;" || true
+psql "postgresql://tg_bot:YOUR_DB_PASSWORD@127.0.0.1:5432/tg_bot" -f database/schema.sql
+```
+
+Details: [`deploy/POSTGRESQL.md`](deploy/POSTGRESQL.md).
+
+### 4. Configuration
+
+```bash
 cp .env.example .env
 chmod 600 .env
-# Fill in credentials, domain and email.
-docker compose build
-docker compose up -d
-docker compose ps
+nano .env   # or your editor
 ```
 
-Implemented: authenticated webhooks, duplicate update protection, private `/start`
-and `/stop`, configured-channel join approval or temporary welcome sequences,
-observed video-chat notifications, scheduled text broadcasts, pause/resume/cancel,
-keyset audience generation, bounded queues and retries, an authenticated operator
-API and local dashboard, structured logs, metrics, backups and retention.
+Set at minimum:
 
-The initial operator interface is installation-wide with one API key. It does not
-implement the proposed multi-admin/channel permission model or a Telegram button
-editor. Message/media/button/template tables reserve the schema for those editors;
-the current delivery flows send plain text. Broadcasts target users who explicitly
-started this bot and have not stopped it; channel membership alone is not permission
-to message someone. Welcome steps use the temporary join-request contact window,
-are capped at 240 seconds, and are skipped after expiry. Auto approval takes priority
-and skips temporary welcome messages. Live events are limited to observed Telegram
-`video_chat_started` messages, not universal livestream discovery.
+| Variable | Notes |
+|----------|--------|
+| `BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) |
+| `WEBHOOK_BASE_URL` | Public origin only, no trailing slash, e.g. `https://bot.example.com` |
+| `WEBHOOK_PATH` | Default `/tg/webhook/{secret}` — `{secret}` is replaced by `WEBHOOK_SECRET` |
+| `WEBHOOK_SECRET` | Long random string (appears in the webhook URL Telegram calls) |
+| `ADMIN_USER_IDS` | Comma-separated numeric Telegram **user** ids (admins must `/start` the bot) |
+| `POSTGRES_DSN` | On VPS typically `postgresql://tg_bot:...@127.0.0.1:5432/tg_bot` |
+| `REDIS_URL` | Usually `redis://127.0.0.1:6379/0` |
+| `PORT` | Local port for uvicorn (must match nginx `proxy_pass`; e.g. `8000`) |
 
-## Reliability contract
+Optional: `INITIAL_OWNER_ID` — seeds owner role when the admins table is empty.
 
-* A webhook succeeds only after its inbox and job transaction commits. Redis or
-  RabbitMQ downtime cannot lose an accepted update.
-* PostgreSQL jobs are scheduled durably. Workers publish UUID signals with confirms
-  and poll unclaimed jobs again after 30 seconds. Duplicate signals are harmless.
-* Consumers claim with an atomic state transition and acknowledge after recording
-  the outcome. Domain effects are transactional and keyed for deduplication.
-* Retries use PostgreSQL `due_at`, capped exponential backoff and a maximum of eight
-  attempts for unexpected processing errors. Telegram 429 uses `retry_after` plus a
-  shared cooldown; rate deferrals do not expire a job.
-* Queues and DLQs are durable quorum queues with length/byte bounds and rejection
-  on overflow. PostgreSQL keeps work while the broker is full. Single-node quorum
-  queues are durable, but do not provide host-level high availability.
-* Telegram has no general send idempotency key. A transport timeout or expired send
-  lease becomes `UNKNOWN`, not an automatic resend. An operator must reconcile it.
-  This trades automatic recovery of uncertain sends for avoiding silent duplicates.
-* `COMPLETED` on campaigns means recipient generation completed. Delivery states
-  must also be checked; it does not claim every Telegram message succeeded.
+Redis queue/key prefixes must be **unique per bot** if several bots share one Redis (see multi-bot guide below).
 
-## Verification
+### 5. systemd
 
-```sh
-mvn test       # unit tests, Java 21 / Maven 3.9+
-mvn verify     # additionally requires Docker; Testcontainers PostgreSQL tests
+Copy and edit the sample unit (paths, user, port):
+
+```bash
+sudo cp deploy/telegram-bot.service /etc/systemd/system/mybot.service
+sudo nano /etc/systemd/system/mybot.service
 ```
 
-The image build runs unit tests. Run `mvn verify` on a Docker-enabled build host
-before deployment. See [release validation](docs/validation.md). This repository
-does not claim benchmarked capacity or production certification.
+Point `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` (`uvicorn` `--port`) at your install. Example `ExecStart`:
 
-Source references: [Telegram Bot API](https://core.telegram.org/bots/api),
-[Telegram limits](https://core.telegram.org/bots/faq#broadcasting-to-users),
-[Spring Boot 3.5](https://docs.spring.io/spring-boot/3.5/reference/index.html).
+```text
+ExecStart=/opt/tg-bots/mybot/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mybot.service
+sudo systemctl status mybot.service --no-pager
+```
+
+### 6. Nginx + TLS
+
+- Put `server_name` to the same host as `WEBHOOK_BASE_URL`.
+- Proxy `/tg/webhook/` (and usually `/health`) to `http://127.0.0.1:<PORT>`.
+
+Example fragments: [`deploy/nginx.example.conf`](deploy/nginx.example.conf).
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d bot.example.com
+```
+
+Allow **80** and **443** on the firewall (`sudo ufw allow 80,443/tcp`).
+
+### 7. DNS
+
+Create an **A** record for your bot hostname pointing at the VPS public IPv4. Telegram’s servers must resolve this name when registering the webhook.
+
+Verify:
+
+```bash
+dig +short bot.example.com A
+curl -4 -sS ifconfig.me   # should match if single public IP
+```
+
+### 8. Verify
+
+After the service is running:
+
+```bash
+curl -sS http://127.0.0.1:8000/health
+```
+
+You should see JSON with `"status":"ok"`. While `setWebhook` runs in the background, `"webhook"` may be `registering`, then `registered` or `not_registered` if Telegram rejects the URL (often DNS propagation or hostname resolution from Telegram’s side).
+
+Check Telegram’s view (loads `.env`; **do not log this output publicly** — it contains the token):
+
+```bash
+cd /opt/tg-bots/mybot && set -a && source .env && set +a
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+```
+
+Logs:
+
+```bash
+journalctl -u mybot.service -n 80 --no-pager
+```
+
+In Telegram, open the bot and send **`/admin`** (must be an admin user id from `ADMIN_USER_IDS`).
+
+---
+
+## Multiple bots on one VPS
+
+Use **separate** folders, databases, local ports, Redis prefixes, systemd units, and nginx `server_name` entries. Step-by-step: [`MULTI_BOT_VPS_SETUP.md`](MULTI_BOT_VPS_SETUP.md).
+
+---
+
+## Extra docs
+
+| Doc | Purpose |
+|-----|---------|
+| [`deploy/VPS_DEPLOYMENT.md`](deploy/VPS_DEPLOYMENT.md) | Webhook overview and scaling notes |
+| [`deploy/POSTGRESQL.md`](deploy/POSTGRESQL.md) | PostgreSQL setup |
+| [`deploy/REDIS.md`](deploy/REDIS.md) | Redis setup |
+| [`deploy/telegram-bot.service`](deploy/telegram-bot.service) | systemd template |
+| [`deploy/nginx.example.conf`](deploy/nginx.example.conf) | nginx + TLS example |
+| [`deploy/WEB_ADMIN.md`](deploy/WEB_ADMIN.md) | Web admin panel on your domain |
+
+---
+
+## Web admin panel
+
+Optional HTTPS admin site on a hostname you already own, for example `https://admin.example.com`. Set `ADMIN_PANEL_URL` in `.env`. Do not hardcode the domain.
+
+Telegram `/admin` stays available. The shared inbox still forwards every user message to every admin, and replies still use Telegram’s Reply on the forwarded message.
+
+Setup, BotFather domain configuration, cookies, and migrations: [`deploy/WEB_ADMIN.md`](deploy/WEB_ADMIN.md).
+
+---
+
+## Local development (optional)
+
+Without a public HTTPS URL, set `WEBHOOK_REGISTER_ON_STARTUP=false` in `.env` so startup does not call Telegram `setWebhook`. For full Telegram delivery you still need a reachable HTTPS webhook in production.
+
+---
+
+## Repository
+
+[sixtyfourbitsquad/new-9-may-bot](https://github.com/sixtyfourbitsquad/new-9-may-bot)

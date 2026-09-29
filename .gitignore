@@ -1,7 +1,8 @@
-/target/
-/.tools/
-/.m2/
-/.env
-*.log
-.idea/
-.vscode/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+.env
+logs/*.log
+storage/*
+!.gitkeep

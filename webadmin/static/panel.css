@@ -1,0 +1,61 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --ink: #1c1915;
+  --muted: #5e584f;
+  --line: #ddd6c8;
+  --card: #fffdf8;
+  --accent: #0f6e56;
+  --danger: #8f2d2d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.45 "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+button, input, textarea, select {
+  font: inherit;
+}
+button, .nav-btn {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+button.danger { color: var(--danger); }
+.layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+aside { padding: 20px 14px; border-right: 1px solid var(--line); background: #efeae1; }
+aside h1 { font-size: 18px; margin: 0 0 8px; }
+.nav { display: flex; flex-direction: column; gap: 6px; }
+.nav-btn.active { background: var(--ink); color: white; }
+main { padding: 20px 24px 48px; }
+.top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.stat { font-size: 22px; font-weight: 650; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
+textarea, input[type="text"], input[type="number"], input[type="password"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+.login {
+  max-width: 420px;
+  margin: 10vh auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+}
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.warn { background: #fff4d6; border: 1px solid #e4d7a4; padding: 10px 12px; border-radius: 8px; }
+pre { white-space: pre-wrap; word-break: break-word; }
