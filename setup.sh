@@ -262,7 +262,7 @@ ask_settings() {
   fi
 
   while true; do
-    BOT_TOKEN=$(prompt "Telegram bot token: " 1)
+    BOT_TOKEN=$(prompt "Telegram bot token: ")
     BOT_TOKEN=$(trim_edges "$BOT_TOKEN")
     if [[ ! "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
       info "Enter the token from BotFather: a numeric bot id, a colon, then the secret."
