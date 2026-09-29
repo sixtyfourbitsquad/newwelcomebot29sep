@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome bot · Operations</title>
+<style>
+:root{font:16px system-ui;color:#e7edf9;background:#111827}body{max-width:1040px;margin:48px auto;padding:0 24px}header{border-bottom:1px solid #334155;padding-bottom:24px}h1{font-size:32px;margin:8px 0}p{color:#a9b8cf}section{background:#1c273b;border:1px solid #334155;border-radius:12px;padding:24px;margin:24px 0}input,textarea,button,select{font:inherit;border-radius:6px;padding:10px;border:1px solid #52627a;background:#111827;color:inherit}input,textarea{box-sizing:border-box;width:100%;margin:8px 0 16px}button{background:#3d65d8;cursor:pointer}button.secondary{background:#334155}label{display:block}table{width:100%;border-collapse:collapse;margin:16px 0}td,th{text-align:left;padding:10px;border-bottom:1px solid #334155}code{font-size:13px}#notice{white-space:pre-wrap;color:#a8c7ff}small{color:#a9b8cf}
+</style></head><body>
+<header><small>TELEGRAM AUTOMATION</small><h1>Operations</h1><p>Manage delivery and broadcasts through your private operator connection.</p></header>
+<section><label>Operator API key<input id="key" type="password" autocomplete="off" placeholder="Enter your API key"></label><button id="refresh">Connect / refresh</button><p id="notice" role="status">The key stays in this tab's memory.</p></section>
+<section><h2>Job health</h2><div id="jobs">Connect to view status.</div></section>
+<section><h2>Create a broadcast</h2><p>Sends to users who started the bot and remain subscribed.</p><label>Message<textarea id="text" rows="4" maxlength="4096"></textarea></label><label>Delay in seconds<input id="delay" type="number" min="0" max="31536000" value="0"></label><button id="send">Review and send</button></section>
+<section><h2>Recent campaigns</h2><p>COMPLETED means audience generation finished. Check job health for delivery outcomes.</p><div id="campaigns"></div></section>
+<section><h2>Deliveries needing review</h2><button id="unknown" class="secondary">Load unknown outcomes</button> <button id="dead" class="secondary">Load failed jobs</button><div id="review"></div></section>
+<script>
+const el=id=>document.getElementById(id);
+async function api(path,method='GET',body){const response=await fetch('/admin/'+path,{method,headers:{Authorization:'Bearer '+el('key').value,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!response.ok)throw Error('Request failed ('+response.status+'). Check the key and connection.');const text=await response.text();return text?JSON.parse(text):null;}
+function table(target,columns,rows){const t=document.createElement('table'),head=t.createTHead().insertRow();columns.forEach(c=>{const h=document.createElement('th');h.textContent=c;head.append(h)});for(const row of rows){const tr=t.insertRow();row.forEach(value=>{const td=tr.insertCell();if(value instanceof Node)td.append(value);else td.textContent=value??''})}el(target).replaceChildren(t)}
+async function refresh(){const s=await api('status');table('jobs',['Kind','State','Count'],s.jobs.map(j=>[j.kind,j.state,j.count]));table('campaigns',['ID','State','Cursor','Controls'],s.campaigns.map(c=>{const controls=document.createElement('div');for(const action of ['pause','resume','cancel']){const b=document.createElement('button');b.className='secondary';b.textContent=action;b.onclick=()=>run(async()=>{if(action==='cancel'&&!confirm('Cancel this campaign? In-flight sends may complete.'))return;await api('broadcasts/'+c.id+'/'+action,'POST');await refresh()});controls.append(b)}return[c.id,c.state,c.cursor,controls]}));el('notice').textContent='Updated '+new Date().toLocaleTimeString()}
+async function run(fn){try{await fn()}catch(e){el('notice').textContent=e.message}}
+el('refresh').onclick=()=>run(refresh);
+el('send').onclick=()=>run(async()=>{const text=el('text').value,delaySeconds=Number(el('delay').value);if(!text.trim())throw Error('Enter a message.');if(!confirm('Send this message to all subscribed users?\n\n'+text))return;const c=await api('broadcasts','POST',{text,delaySeconds});el('text').value='';await refresh();el('notice').textContent='Created campaign '+c.id});
+for(const state of ['unknown','dead'])el(state).onclick=()=>run(async()=>{const rows=await api('jobs?state='+state.toUpperCase());table('review',['ID','Kind','State','Reason'],rows.map(j=>[j.id,j.kind,j.state,j.last_error]))});
+</script></body></html>

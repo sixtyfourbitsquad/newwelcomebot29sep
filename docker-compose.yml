@@ -1,0 +1,172 @@
+name: welcome-bot
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+x-app: &app
+  image: ${APP_IMAGE:-welcome-bot:local}
+  build: .
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: [/tmp:size=64m]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+  mem_limit: 768m
+  cpus: 1.0
+  pids_limit: 256
+  logging: *logging
+  networks: [backend, egress]
+  environment: &environment
+    DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB}
+    DB_USER: automation_runtime
+    DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?Set RUNTIME_DB_PASSWORD}
+    DB_POOL_SIZE: 6
+    REDIS_HOST: redis
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER}
+    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN}
+    TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Set TELEGRAM_WEBHOOK_SECRET}
+    ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY}
+  healthcheck:
+    test: [CMD, curl, --fail, --silent, http://localhost:9091/actuator/health/readiness]
+    interval: 20s
+    timeout: 5s
+    retries: 5
+    start_period: 90s
+services:
+  app:
+    <<: *app
+    environment:
+      <<: *environment
+      SPRING_PROFILES_ACTIVE: api
+      MIGRATIONS_ENABLED: "true"
+      MIGRATION_USER: ${POSTGRES_USER}
+      MIGRATION_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+  worker:
+    <<: *app
+    environment:
+      <<: *environment
+      SPRING_PROFILES_ACTIVE: worker
+    depends_on:
+      app: {condition: service_healthy}
+  broadcast-worker:
+    <<: *app
+    cpus: 0.75
+    environment:
+      <<: *environment
+      SPRING_PROFILES_ACTIVE: broadcast
+      WORKER_QUEUES: automation.broadcast,automation.delivery.low
+    depends_on:
+      app: {condition: service_healthy}
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD}
+    command: [postgres, -c, shared_buffers=256MB, -c, work_mem=4MB, -c, max_connections=60, -c, log_min_error_statement=panic]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/init-runtime.sh:/docker-entrypoint-initdb.d/10-runtime.sh:ro
+    networks: [backend]
+    mem_limit: 1536m
+    cpus: 1.5
+    logging: *logging
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment: {REDIS_PASSWORD: "${REDIS_PASSWORD}"}
+    command: [sh, -c, 'exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy noeviction --appendonly yes']
+    volumes: [redis-data:/data]
+    networks: [backend]
+    mem_limit: 256m
+    cpus: 0.25
+    logging: *logging
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: automation
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./deploy/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    networks: [backend]
+    mem_limit: 768m
+    cpus: 0.75
+    logging: *logging
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backend, egress]
+    mem_limit: 128m
+    cpus: 0.25
+    logging: *logging
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2019/config/]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    profiles: [monitoring]
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.retention.time=15d, --storage.tsdb.retention.size=2GB]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks: [backend]
+    ports: ["127.0.0.1:9090:9090"]
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *logging
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://localhost:9090/-/healthy]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  backend: {internal: true}
+  egress: {}
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  caddy-data:
+  caddy-config:
+  prometheus-data:

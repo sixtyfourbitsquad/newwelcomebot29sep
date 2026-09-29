@@ -1,0 +1,16 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B --no-transfer-progress verify
+      - run: cp .env.example .env && docker compose config --quiet
+      - run: docker run --rm -e APP_DOMAIN=bot.example.com -e ACME_EMAIL=operator@example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - run: bash -n scripts/backup.sh scripts/restore.sh scripts/register-webhook.sh deploy/init-runtime.sh
