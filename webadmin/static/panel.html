@@ -11,7 +11,7 @@
     <div class="gate-card">
       <p class="eyebrow">Community bot</p>
       <h1>Sign in</h1>
-      <p class="muted">Use the Telegram account that administers this bot.</p>
+      <p class="muted">Tap the button and sign in with the Telegram account you use to manage this bot.</p>
       <div id="tg-login"></div>
       <form id="pin-form" hidden>
         <label>Owner PIN
@@ -30,12 +30,14 @@
     </aside>
     <div class="workspace">
       <header class="bar">
-        <div>
-          <h1 id="title">Dashboard</h1>
+        <button id="menu" class="menu-btn" type="button">Menu</button>
+        <div class="bar-title">
+          <h1 id="title">Home</h1>
           <p id="lead" class="muted"></p>
         </div>
         <button id="logout" type="button">Log out</button>
       </header>
+      <div id="scrim" class="scrim"></div>
       <div id="view"></div>
     </div>
   </div>
