@@ -49,12 +49,28 @@ require_ubuntu() {
 prompt() {
   local label="$1" secret="${2:-0}" value=""
   if [[ "$secret" -eq 1 ]]; then
-    read -r -s -p "$label" value
-    printf '\n'
+    # IFS= keeps a pasted token intact. The newline goes to the terminal, not into the value.
+    IFS= read -r -s -p "$label" value || true
+    printf '\n' >&2
   else
-    read -r -p "$label" value
+    IFS= read -r -p "$label" value || true
   fi
+  value=${value//$'\r'/}
   printf '%s' "$value"
+}
+
+trim_edges() {
+  local value="$1"
+  value=${value#"${value%%[![:space:]]*}"}
+  value=${value%"${value##*[![:space:]]}"}
+  printf '%s' "$value"
+}
+
+telegram_token_accepted() {
+  local token="$1" body
+  body=$(curl -sS --max-time 20 "https://api.telegram.org/bot${token}/getMe" 2>/dev/null) || true
+  [[ -n "$body" ]] || return 2
+  printf '%s' "$body" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'
 }
 
 valid_domain() {
@@ -230,7 +246,7 @@ configure_firewall() {
 }
 
 ask_settings() {
-  local domain style answer
+  local domain style answer status
   while true; do
     domain=$(prompt "Domain name (example.com): ")
     domain=$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
@@ -247,8 +263,21 @@ ask_settings() {
 
   while true; do
     BOT_TOKEN=$(prompt "Telegram bot token: " 1)
-    [[ "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && break
-    info "That token format is not valid."
+    BOT_TOKEN=$(trim_edges "$BOT_TOKEN")
+    if [[ ! "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
+      info "Enter the token from BotFather: a numeric bot id, a colon, then the secret."
+      continue
+    fi
+    info "Checking the token with Telegram"
+    telegram_token_accepted "$BOT_TOKEN" && status=0 || status=$?
+    if [[ "$status" -eq 0 ]]; then
+      break
+    fi
+    if [[ "$status" -eq 2 ]]; then
+      info "Could not reach Telegram to check the token. Try again."
+      continue
+    fi
+    info "Telegram rejected this token. Generate a new token with BotFather."
   done
 
   while true; do
