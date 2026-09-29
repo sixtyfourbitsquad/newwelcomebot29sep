@@ -2,7 +2,7 @@ const state = { csrf: "", role: "", section: "dashboard", mfa: "" };
 
 const sections = [
   ["dashboard", "Dashboard"],
-  ["inbox", "Shared inbox"],
+  ["inbox", "Inbox"],
   ["broadcasts", "Broadcasts"],
   ["scheduled", "Scheduled"],
   ["welcome", "Welcome"],
@@ -13,9 +13,32 @@ const sections = [
   ["logs", "Logs"],
   ["queue", "Queue"],
   ["health", "Health"],
-  ["setup", "Bot setup"],
+  ["setup", "Setup"],
   ["admins", "Admins"],
 ];
+
+const groups = [
+  ["Daily", ["dashboard", "inbox", "broadcasts", "scheduled"]],
+  ["Automation", ["welcome", "onboarding", "retention", "channel"]],
+  ["Records", ["people", "logs", "queue", "health", "setup", "admins"]],
+];
+
+const leads = {
+  dashboard: "Members, queues, and whether the bot services are up.",
+  inbox: "Every member message is shown to every admin. A reply goes only to the person you confirm.",
+  broadcasts: "Send one message to everyone who started the bot and has not blocked it.",
+  scheduled: "Times are UTC.",
+  welcome: "Sent when someone starts the bot. {name} becomes their first name.",
+  onboarding: "Follow-up messages after 1 hour, 1 day, and 3 days.",
+  retention: "Sent after someone leaves the channel.",
+  channel: "The channel this bot watches, plus join approval and livestream text.",
+  people: "Search by name, username, or Telegram id.",
+  logs: "Recent system events. Owners also see the audit log.",
+  queue: "Broadcast jobs that are still waiting to send.",
+  health: "Database, Redis, workers, and the Telegram webhook.",
+  setup: "Public settings. Secrets are not shown.",
+  admins: "Who can open this panel and the Telegram admin menu.",
+};
 
 function esc(value) {
   return String(value ?? "")
@@ -105,15 +128,22 @@ function showApp() {
   document.getElementById("who").textContent = state.role;
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
-  for (const [id, label] of sections) {
-    if (id === "admins" && state.role !== "owner") continue;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "nav-btn";
-    button.textContent = label;
-    button.dataset.section = id;
-    button.addEventListener("click", () => openSection(id));
-    nav.appendChild(button);
+  const labels = Object.fromEntries(sections);
+  for (const [group, ids] of groups) {
+    const title = document.createElement("p");
+    title.className = "nav-label";
+    title.textContent = group;
+    nav.appendChild(title);
+    for (const id of ids) {
+      if (id === "admins" && state.role !== "owner") continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "nav-btn";
+      button.textContent = labels[id];
+      button.dataset.section = id;
+      button.addEventListener("click", () => openSection(id));
+      nav.appendChild(button);
+    }
   }
   openSection(state.section);
 }
@@ -124,6 +154,7 @@ async function openSection(id) {
     node.classList.toggle("active", node.dataset.section === id);
   });
   document.getElementById("title").textContent = sections.find((row) => row[0] === id)[1];
+  document.getElementById("lead").textContent = leads[id] || "";
   const loaders = {
     dashboard: renderDashboard,
     inbox: renderInbox,
@@ -153,6 +184,17 @@ function cards(items) {
     .join("")}</div>`;
 }
 
+function payloadText(payload) {
+  if (!payload) return "";
+  if (typeof payload === "string") return payload;
+  return payload.text || payload.caption || "";
+}
+
+function table(head, rows) {
+  if (!rows) return `<div class="card empty">Nothing here yet.</div>`;
+  return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 async function renderDashboard() {
   const data = await api("/panel/api/dashboard");
   view(
@@ -166,7 +208,7 @@ async function renderDashboard() {
       ["Queue", data.broadcast_queue],
       ["Uptime (s)", data.uptime_seconds],
     ]) +
-      `<div class="card">Postgres ${data.postgres_ok ? "ok" : "down"} · Redis ${data.redis_ok ? "ok" : "down"} · Webhook ${esc(data.webhook)}<br>Workers: ${esc(JSON.stringify(data.workers))}</div>`
+      `<div class="card">Database ${data.postgres_ok ? "up" : "down"} · Redis ${data.redis_ok ? "up" : "down"} · Webhook ${esc(data.webhook)}</div>`
   );
 }
 
@@ -185,9 +227,8 @@ async function renderInbox() {
     )
     .join("");
   view(
-    `<div class="warn">Shared inbox. Every admin sees every message. A reply is sent only to the user you confirm.</div>
-     <table><thead><tr><th>User</th><th>Type</th><th>Message</th><th>Received</th><th>Reply</th><th></th></tr></thead><tbody>${rows || ""}</tbody></table>
-     <div id="thread"></div>`
+    table("<th>User</th><th>Type</th><th>Message</th><th>Received</th><th>Reply</th><th></th>", rows) +
+      `<div id="thread"></div>`
   );
   document.querySelectorAll("[data-user]").forEach((button) => {
     button.addEventListener("click", () => openThread(button.dataset.user));
@@ -250,7 +291,7 @@ async function renderBroadcasts() {
   view(`<div class="card"><p>${esc(data.recipients)} people can receive the next message.</p>
       <textarea id="bc-text" rows="3" placeholder="Broadcast text. {name} is replaced."></textarea>
       <p><button class="primary" id="bc-send" type="button">Send to everyone</button></p></div>
-      <table><thead><tr><th>ID</th><th>Status</th><th>Delivered</th><th>Failed</th><th>Blocked</th><th></th></tr></thead><tbody>${rows}</tbody></table>`);
+      ${table("<th>ID</th><th>Status</th><th>Delivered</th><th>Failed</th><th>Blocked</th><th></th>", rows)}`);
   bind("bc-send", "click", async () => {
     if (!window.confirm("Send this message to every active user?")) return;
     await api("/panel/api/broadcasts", { method: "POST", body: { kind: "text", text: document.getElementById("bc-text").value, start: true } });
@@ -278,7 +319,7 @@ async function renderScheduled() {
       <input id="sch-time" type="text" placeholder="2026-09-29T18:00:00Z">
       <textarea id="sch-text" rows="3" placeholder="Message"></textarea>
       <p><button class="primary" id="sch-save" type="button">Schedule</button></p></div>
-      <table><tbody>${rows}</tbody></table>`);
+      ${table("<th>ID</th><th>When</th><th>Status</th><th></th>", rows)}`);
   bind("sch-save", "click", async () => {
     await api("/panel/api/scheduled", {
       method: "POST",
@@ -300,7 +341,7 @@ async function renderWelcome() {
   const steps = data.steps
     .map((row, index) => {
       const previous = data.steps[index - 1];
-      return `<li>${esc(row.step_order)}: ${esc(JSON.stringify(row.payload))}
+      return `<li>${esc(row.step_order)}. ${esc(payloadText(row.payload)) || "Empty step"}
         ${previous ? `<button type="button" data-swap="${previous.step_order},${row.step_order}">Move up</button>` : ""}
         <button type="button" data-del="${row.step_order}">Delete</button></li>`;
     })
@@ -359,7 +400,7 @@ async function renderRetention() {
   const steps = data.steps
     .map((row, index) => {
       const previous = data.steps[index - 1];
-      return `<li>${esc(row.step_order)} delay ${esc(row.delay_seconds)}s ${esc(JSON.stringify(row.payload))}
+      return `<li>${esc(row.step_order)}. After ${esc(row.delay_seconds)} seconds. ${esc(payloadText(row.payload)) || "Empty step"}
         ${previous ? `<button type="button" data-rswap="${previous.step_order},${row.step_order}">Move up</button>` : ""}
         <button type="button" data-rdel="${row.step_order}">Delete</button></li>`;
     })
@@ -434,9 +475,10 @@ async function renderPeople() {
       <p><button id="people-go" type="button">Search</button></p><div id="people-out"></div></div>`);
   bind("people-go", "click", async () => {
     const data = await api(`/panel/api/users?q=${encodeURIComponent(document.getElementById("people-q").value)}`);
-    document.getElementById("people-out").innerHTML = `<table>${data.users
+    const rows = data.users
       .map((row) => `<tr><td>${esc(row.user_id)}</td><td>${esc(row.first_name)}</td><td>@${esc(row.username)}</td><td>${esc(row.broadcast_status)}</td><td>${esc(row.last_seen)}</td></tr>`)
-      .join("")}</table>`;
+      .join("");
+    document.getElementById("people-out").innerHTML = table("<th>ID</th><th>Name</th><th>Username</th><th>Status</th><th>Last seen</th>", rows);
   });
 }
 
@@ -483,7 +525,7 @@ async function renderAdmins() {
   view(`<div class="card"><input id="new-admin" type="number" placeholder="Telegram user id">
       <select id="new-role"><option value="admin">admin</option><option value="owner">owner</option></select>
       <p><button class="primary" id="add-admin" type="button">Add admin</button></p></div>
-      <table><tbody>${rows}</tbody></table>`);
+      ${table("<th>ID</th><th>Role</th><th>Active</th><th>Last login</th><th>Updated by</th><th></th>", rows)}`);
   bind("add-admin", "click", async () => {
     await api("/panel/api/admins", {
       method: "POST",

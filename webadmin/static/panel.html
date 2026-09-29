@@ -7,30 +7,37 @@
   <link rel="stylesheet" href="/panel/static/panel.css">
 </head>
 <body>
-  <section id="login" class="login">
-    <h1>Admin panel</h1>
-    <p class="muted">Sign in with the Telegram account that is an admin of this bot.</p>
-    <div id="tg-login"></div>
-    <form id="pin-form" hidden>
-      <p>Owner PIN</p>
-      <input id="pin" type="password" autocomplete="current-password">
-      <p><button class="primary" type="submit">Continue</button></p>
-    </form>
-    <p id="login-error" class="error"></p>
+  <section id="login" class="gate">
+    <div class="gate-card">
+      <p class="eyebrow">Community bot</p>
+      <h1>Sign in</h1>
+      <p class="muted">Use the Telegram account that administers this bot.</p>
+      <div id="tg-login"></div>
+      <form id="pin-form" hidden>
+        <label>Owner PIN
+          <input id="pin" type="password" autocomplete="current-password">
+        </label>
+        <button class="primary" type="submit">Continue</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </div>
   </section>
-  <div id="app" class="layout" hidden>
-    <aside>
-      <h1>Admin</h1>
-      <p class="muted" id="who"></p>
-      <nav class="nav" id="nav"></nav>
+  <div id="app" class="shell" hidden>
+    <aside class="side">
+      <p class="side-brand">Community bot</p>
+      <p class="who" id="who"></p>
+      <nav id="nav"></nav>
     </aside>
-    <main>
-      <div class="top">
-        <strong id="title">Dashboard</strong>
+    <div class="workspace">
+      <header class="bar">
+        <div>
+          <h1 id="title">Dashboard</h1>
+          <p id="lead" class="muted"></p>
+        </div>
         <button id="logout" type="button">Log out</button>
-      </div>
+      </header>
       <div id="view"></div>
-    </main>
+    </div>
   </div>
   <script src="/panel/static/panel.js"></script>
 </body>
